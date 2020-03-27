@@ -8,11 +8,12 @@ from flowers import RedFlower, flower_classes
 
 window = pyglet.window.Window()
 
-air_temps = [0.2] * window.width
+stable_temp = 1
+air_temps = [stable_temp] * window.width
 air_conduction = 1
-air_flow = 200 # Multiplier for updraft/downdrafts
+air_flow = 20 # Multiplier for updraft/downdrafts
 air_thermal_mass = 1
-solar_energy = 0.05
+solar_energy = 2
 
 bodies = set()
 
@@ -26,18 +27,22 @@ class Body(pyglet.sprite.Sprite):
         self.thermal_mass = thermal_mass
 
     def draw(self):
-        vertex_list = pyglet.graphics.vertex_list(4, 'v2f', 'c3B')
+        vertex_list = pyglet.graphics.vertex_list(8, 'v2f', 'c3B')
         vertex_list.vertices = [self.x, self.y,
                                 self.x + self.width, self.y,
                                 self.x + self.width, self.y + self.height,
-                                self.x, self.y + self.height]
+                                self.x, self.y + self.height,
+                                self.x + 1, self.y + 1,
+                                self.x + self.width - 1, self.y + 1,
+                                self.x + self.width - 1, self.y + self.height - 1,
+                                self.x + 1, self.y + self.height - 1]
         color = temp_to_color(self.temp)
-        vertex_list.colors = list(color) * 4
+        vertex_list.colors = [0] * 12 + list(color) * 4
         vertex_list.draw(GL_QUADS)
-        super().draw()
+        #super().draw()
 
 
-butterfly = Body(0.5, 1, 0, 0.2, 0.1, pyglet.resource.image("resources/butterfly.png"))
+butterfly = Body(stable_temp, 1, 0, 0.1, 0.01, pyglet.resource.image("resources/butterfly.png"))
 
 butterfly.btn_speed = 80
 butterfly.dx = 0
@@ -49,7 +54,7 @@ bodies.add(butterfly)
 
 ground_img = pyglet.resource.image("resources/ground.png")
 for i in range(0, window.width // ground_img.width):
-    segment = Body(random.random(), random.random(), 0.01, 0.1, 10, ground_img)
+    segment = Body(stable_temp, 0.3, 0.95, 0.1, 10, ground_img)
     segment.x = 0 + i * ground_img.width
     bodies.add(segment)
 
@@ -126,7 +131,7 @@ def update_temperatures(dt):
     # Radiate excess energy into space
     for body in top:
         if body is not None:
-            body.temp -= dt * body.temp * body.emissivity / body.width
+            body.temp -= dt * body.temp * body.emissivity / (body.width * body.thermal_mass)
 
     # Conduct away heat to/from the air
     for body in bodies:
