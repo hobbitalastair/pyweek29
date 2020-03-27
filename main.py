@@ -11,7 +11,7 @@ window = pyglet.window.Window()
 stable_temp = 1
 air_temps = [stable_temp] * window.width
 air_conduction = 1
-air_flow = 20 # Multiplier for updraft/downdrafts
+air_flow = 300 # Multiplier for updraft/downdrafts
 air_thermal_mass = 1
 solar_energy = 2
 
@@ -42,11 +42,13 @@ class Body(pyglet.sprite.Sprite):
         #super().draw()
 
 
-butterfly = Body(stable_temp, 1, 0, 0.1, 0.01, pyglet.resource.image("resources/butterfly.png"))
+butterfly = Body(stable_temp, 1, 0, 0.1, 0.001, pyglet.resource.image("resources/butterfly.png"))
 
-butterfly.btn_speed = 80
+butterfly.h_speed = 80
+butterfly.v_speed = 20
 butterfly.dx = 0
 butterfly.dy = 0
+butterfly.user_dy = 0
 butterfly.y = 40
 butterfly.scale = 3
 
@@ -54,7 +56,7 @@ bodies.add(butterfly)
 
 ground_img = pyglet.resource.image("resources/ground.png")
 for i in range(0, window.width // ground_img.width):
-    segment = Body(stable_temp, 0.3, 0.95, 0.1, 10, ground_img)
+    segment = Body(stable_temp, 0.3 + (0.3 * random.random() - 0.15), 0.95, 0.1, 1, ground_img)
     segment.x = 0 + i * ground_img.width
     bodies.add(segment)
 
@@ -91,22 +93,30 @@ def on_key_press(symbol, modifiers):
     if symbol == key.Q:
         window.close()
     if symbol == key.LEFT:
-        butterfly.dx -= butterfly.btn_speed
+        butterfly.dx -= butterfly.h_speed
     if symbol == key.RIGHT:
-        butterfly.dx += butterfly.btn_speed
+        butterfly.dx += butterfly.h_speed
+    if symbol == key.UP:
+        butterfly.user_dy += butterfly.v_speed
+    if symbol == key.DOWN:
+        butterfly.user_dy -= butterfly.v_speed
 
 
 @window.event
 def on_key_release(symbol, modifiers):
     if symbol == key.LEFT:
-        butterfly.dx += butterfly.btn_speed
+        butterfly.dx += butterfly.h_speed
     if symbol == key.RIGHT:
-        butterfly.dx -= butterfly.btn_speed
+        butterfly.dx -= butterfly.h_speed
+    if symbol == key.UP:
+        butterfly.user_dy -= butterfly.v_speed
+    if symbol == key.DOWN:
+        butterfly.user_dy += butterfly.v_speed
 
 
 def animation_update(dt):
     butterfly.x = (butterfly.x + butterfly.dx * dt)
-    butterfly.y = (butterfly.y + butterfly.dy * dt)
+    butterfly.y = (butterfly.y + (butterfly.dy + butterfly.user_dy) * dt)
 
 
 def state_update(dt):
