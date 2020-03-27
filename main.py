@@ -1,11 +1,43 @@
 import pyglet
+import pyglet.graphics
+from pyglet.gl import *
 from pyglet.window import key
 import random
 
 from flowers import RedFlower, flower_classes
 
 window = pyglet.window.Window()
-butterfly = pyglet.sprite.Sprite(pyglet.resource.image("resources/butterfly.png"))
+
+air_temps = [0.2] * window.width
+air_conduction = 1
+air_flow = 200 # Multiplier for updraft/downdrafts
+air_thermal_mass = 1
+solar_energy = 0.05
+
+bodies = set()
+
+class Body(pyglet.sprite.Sprite):
+    def __init__(self, temp, albedo, emissivity, conduction, thermal_mass, *args, **kargs):
+        super().__init__(*args, **kargs)
+        self.temp = temp
+        self.albedo = albedo
+        self.emissivity = emissivity
+        self.conduction = conduction
+        self.thermal_mass = thermal_mass
+
+    def draw(self):
+        vertex_list = pyglet.graphics.vertex_list(4, 'v2f', 'c3B')
+        vertex_list.vertices = [self.x, self.y,
+                                self.x + self.width, self.y,
+                                self.x + self.width, self.y + self.height,
+                                self.x, self.y + self.height]
+        color = temp_to_color(self.temp)
+        vertex_list.colors = list(color) * 4
+        vertex_list.draw(GL_QUADS)
+        super().draw()
+
+
+butterfly = Body(0.5, 1, 0, 0.2, 0.1, pyglet.resource.image("resources/butterfly.png"))
 
 butterfly.btn_speed = 80
 butterfly.dx = 0
@@ -13,38 +45,40 @@ butterfly.dy = 0
 butterfly.y = 40
 butterfly.scale = 3
 
-shaded = [0.0] * window.width
-temps = [0.0] * window.width
+bodies.add(butterfly)
 
-flowers = {RedFlower(50)}
+ground_img = pyglet.resource.image("resources/ground.png")
+for i in range(0, window.width // ground_img.width):
+    segment = Body(random.random(), random.random(), 0.01, 0.1, 10, ground_img)
+    segment.x = 0 + i * ground_img.width
+    bodies.add(segment)
 
-background = pyglet.image.create(*window.get_size(), pyglet.image.SolidColorImagePattern((255, 255, 255, 255)))
-ground = pyglet.image.create(window.width, 1).get_image_data()
-if ground.format != 'RGBA':
+
+def temp_to_color(temp):
+    return (int((1.0 - (1.0 / (temp + 1))) * 0xFF), 0x00, int((1.0 / (temp + 1)) * 0xFF))
+
+air = pyglet.image.create(window.width, 1).get_image_data()
+if air.format != 'RGBA':
     raise Exception("Unexpected image format for image data, got " + ground.format)
 
-
-def draw_temps():
-    background.blit(0, 0)
-
+def draw_air():
     data = bytearray(window.width * 4)
     for i in range(len(data) // 4):
-        data[i*4 + 0] = int(temps[i] * 0xFF)
-        data[i*4 + 1] = 0x00
-        data[i*4 + 2] = int((1.0 - temps[i]) * 0xFF)
+        color = temp_to_color(air_temps[i])
+        data[i*4 + 0] = color[0]
+        data[i*4 + 1] = color[1]
+        data[i*4 + 2] = color[2]
         data[i*4 + 3] = 0xFF
-    ground.set_data(ground.format, window.width * 4, bytes(data))
-    
-    ground.blit(0, 0, height=10)
+    air.set_data(air.format, window.width * 4, bytes(data))
+    air.blit(0, 0, height=window.height)
 
 
 @window.event
 def on_draw():
     window.clear()
-    draw_temps()
-    for flower in flowers:
-        flower.draw()
-    butterfly.draw()
+    draw_air()
+    for body in bodies:
+        body.draw()
 
 
 @window.event
@@ -66,40 +100,61 @@ def on_key_release(symbol, modifiers):
 
 
 def animation_update(dt):
-    butterfly.x += butterfly.dx * dt
-    butterfly.y += butterfly.dy * dt
+    butterfly.x = (butterfly.x + butterfly.dx * dt)
+    butterfly.y = (butterfly.y + butterfly.dy * dt)
 
 
 def state_update(dt):
-    # Update shade map
-    for i in range(len(shaded)): shaded[i] = -1
-    for sprite in flowers.union({butterfly}):
-        for i in range(int(sprite.x), int(sprite.x + sprite.width)):
-            if i in range(0, len(shaded)):
-                shaded[i] = max(sprite.y, shaded[i])
+    update_temperatures(dt)
+    update_butterfly()
 
+
+def update_temperatures(dt):
     # Update temperatures
-    for i, temp in enumerate(temps):
-        if shaded[i] == -1:
-            temps[i] = min(1, temp + (0.2 * dt))
-        else:
-            temps[i] = max(0, temp - (0.3 * dt))
+    
+    top = [None] * window.width
+    for body in bodies:
+        for i in range(max(0, int(body.x)), min(len(air_temps), int(body.x + body.width))):
+            if top[i] is None or body.y + body.height > top[i].y + top[i].height:
+                top[i] = body
 
-    # Update existing plants
-    dead = set()
-    for sprite in flowers:
-        avg = sum(temps[i] for i in range(int(sprite.x), int(sprite.x + sprite.width)) if i in range(0, len(temps))) / sprite.width
-        if avg > sprite.max_temp or avg < sprite.min_temp:
-            dead.add(sprite)
-    flowers.difference_update(dead)
+    # Absorb the solar radiation
+    for body in top:
+        if body is not None:
+            body.temp += dt * solar_energy * (1 - body.albedo) / (body.width * body.thermal_mass)
 
-    # Seed plants
-    for i, temp in enumerate(temps):
-        for flower_class in flower_classes:
-            if temp < flower_class.seed_max_temp and temp > flower_class.seed_min_temp:
-                if random.random() > 0.99:
-                    flowers.add(flower_class(i))
-                
+    # Radiate excess energy into space
+    for body in top:
+        if body is not None:
+            body.temp -= dt * body.temp * body.emissivity / body.width
+
+    # Conduct away heat to/from the air
+    for body in bodies:
+        for i in range(max(0, int(body.x)), min(len(air_temps), int(body.x + body.width))):
+            delta = (body.temp**2 - air_temps[i]**2) * body.conduction * dt
+            air_temps[i] += delta / air_thermal_mass
+            body.temp -= delta / (body.width * body.thermal_mass)
+
+    # Smooth out the heat in the air columns
+    # FIXME: This is an O(n) with a large constant, but we could track the average and
+    #        reduce the constant. Consider?
+    offset = 20 # Distance either side to take the mean over
+    means = [0.0] * len(air_temps)
+    for i in range(len(air_temps)):
+        lower = max(0, i - offset)
+        upper = min(len(air_temps), i + offset)
+        means[i] = sum(air_temps[j] for j in range(lower, upper)) / (upper - lower)
+    for i, target in enumerate(means): air_temps[i] += (target - air_temps[i]) * dt * air_conduction
+
+
+def update_butterfly():
+    # Butterfly height changes depending on the air temp - kind of simulating an
+    # updraft/downdraft.
+    lower = int(max(0, butterfly.x))
+    upper = int(min(window.width, butterfly.x + butterfly.width))
+    butterfly_air_temp = sum(air_temps[i] for i in range(lower, upper)) / (upper - lower)
+    mean_air_temp = sum(t for t in air_temps) / len(air_temps)
+    butterfly.dy = (butterfly_air_temp - mean_air_temp) * air_flow
 
 
 pyglet.clock.schedule_interval(animation_update, 1/60.0)
