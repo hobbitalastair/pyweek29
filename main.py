@@ -39,7 +39,24 @@ class Body(pyglet.sprite.Sprite):
         color = temp_to_color(self.temp)
         vertex_list.colors = [0] * 12 + list(color) * 4
         vertex_list.draw(GL_QUADS)
-        #super().draw()
+        super().draw()
+
+
+ground_img = pyglet.resource.image("resources/ground.png")
+class Ground(Body):
+    def __init__(self, *args, **kargs):
+        super().__init__(*args, ground_img, **kargs)
+        self.plant = None
+
+
+class Plant(Body):
+    def __init__(self, abs_min_temp, abs_max_temp, min_temp, max_temp, *args, **kargs):
+        super().__init__(*args, **kargs)
+        self.abs_min_temp = abs_min_temp
+        self.abs_max_temp = abs_max_temp
+        self.min_temp = min_temp
+        self.max_temp = max_temp
+
 
 
 butterfly = Body(stable_temp, 1, 0, 0.1, 0.001, pyglet.resource.image("resources/butterfly.png"))
@@ -54,9 +71,8 @@ butterfly.scale = 3
 
 bodies.add(butterfly)
 
-ground_img = pyglet.resource.image("resources/ground.png")
 for i in range(0, window.width // ground_img.width):
-    segment = Body(stable_temp, 0.3 + (0.3 * random.random() - 0.15), 0.95, 0.1, 1, ground_img)
+    segment = Ground(stable_temp, 0.3 + (0.3 * random.random() - 0.15), 0.95, 0.1, 1)
     segment.x = 0 + i * ground_img.width
     bodies.add(segment)
 
@@ -122,6 +138,7 @@ def animation_update(dt):
 def state_update(dt):
     update_temperatures(dt)
     update_butterfly()
+    update_bodies(dt)
 
 
 def update_temperatures(dt):
@@ -170,6 +187,34 @@ def update_butterfly():
     butterfly_air_temp = sum(air_temps[i] for i in range(lower, upper)) / (upper - lower)
     mean_air_temp = sum(t for t in air_temps) / len(air_temps)
     butterfly.dy = (butterfly_air_temp - mean_air_temp) * air_flow
+
+
+plant_img = pyglet.resource.image("resources/plant.png")
+plant_cool = pyglet.resource.image("resources/plant_cool.png")
+plant_hot = pyglet.resource.image("resources/plant_hot.png")
+def update_bodies(dt):
+    mean_temp = sum(t for t in air_temps) / len(air_temps)
+
+    added = []
+    removed = []
+    for body in bodies:
+        if type(body) is Plant:
+            if mean_temp > body.abs_max_temp or mean_temp < body.abs_min_temp:
+                removed.append(body)
+        if type(body) is Ground:
+            if body.plant is None and mean_temp > 0.7 and mean_temp < 1.3 and (random.random() / dt) < 0.05:
+                body.plant = Plant(0.5, 1.35, 0.7, 1.3, mean_temp, 0.5, 0.8, 0.05, 0.1, plant_cool)
+                body.plant.x = body.x
+                body.plant.y = body.y + body.height
+                added.append(body.plant)
+            if body.plant is None and mean_temp > 0.9 and mean_temp < 5 and (random.random() / dt) < 0.05:
+                body.plant = Plant(0.8, 6, 0.9, 5, mean_temp, 0.1, 0.95, 0.1, 0.1, plant_hot)
+                body.plant.x = body.x
+                body.plant.y = body.y + body.height
+                added.append(body.plant)
+
+    for body in removed: bodies.remove(body)
+    for body in added: bodies.add(body)
 
 
 pyglet.clock.schedule_interval(animation_update, 1/60.0)
